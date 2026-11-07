@@ -8,7 +8,6 @@ import json
 import os
 import pathlib
 import sys
-import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -74,9 +73,9 @@ def main():
             for p in prompts:
                 try:
                     raw = ask(*build(p["prompt"], key, model))
-                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+                except Exception as e:  # one failed call must not end the run
                     failed += 1
-                    print(f"{name} {p['id']}: {e}", file=sys.stderr)
+                    print(f"{name} {p['id']}: {e}".replace(key, "[redacted]"), file=sys.stderr)
                     continue
                 rec = {"time": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
                        "engine": name, "model": model, "prompt_id": p["id"], "prompt": p["prompt"], "raw": raw}
