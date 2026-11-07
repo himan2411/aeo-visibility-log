@@ -32,7 +32,7 @@ python3 test_log.py
 
 Engines without a key are skipped. One run is 24 calls per engine. I plan to run it once a week. Running it twice on one day adds a second run to that day's file, and then the range is too narrow, because answers to the same question are not independent.
 
-An answer counts when "Himanshu Surana", "himanshu-surana" or "himan2411" appears in the answer text or in a cited source. Search queries and the echoed request are not counted. Gemini only shows the domain of each source, so its sources count only when the domain matches. A response with no answer text (cut off, blocked, an error body) is left out of N and shown in its own column, even when it lists sources.
+An answer counts when "Himanshu Surana", "himanshu-surana" or "himan2411" appears in the answer text or in a cited source. Search queries and the echoed request are not counted. Gemini only shows the domain of each source, so its sources count only when the domain matches. A response with no answer text (cut off, blocked, refused, an error body) is left out of N and shown in its own column, even when it lists sources.
 
 A name can belong to someone else, so I check every match against the raw answer before I report it. Once the site is live I add its domain to `NAMES` in `score.py`, which is a sharper test than the name.
 

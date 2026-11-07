@@ -20,13 +20,15 @@ NAMES = ["himanshu surana", "himanshu-surana", "himan2411"]
 
 
 # Labels and ids, not answer content: an empty answer that still has them is no answer.
-STRUCTURAL = {"type", "role", "id", "status", "index", "finish_reason", "finishReason", "thoughtSignature"}
+STRUCTURAL = {"type", "role", "finish_reason", "thoughtSignature"}
 
 
 def answer_part(engine, raw):
     """The parts of a raw response that are the answer and its sources, as (answer, sources)."""
     if engine == "chatgpt":
-        return [o for o in raw.get("output", []) if o.get("type") == "message"], None
+        # Only output_text parts: a refusal part is not an answer.
+        return [c for o in raw.get("output", []) if o.get("type") == "message"
+                for c in o.get("content", []) if c.get("type") == "output_text"], None
     if engine == "perplexity":
         return raw.get("choices"), [raw.get("citations"), raw.get("search_results")]
     if engine == "gemini":

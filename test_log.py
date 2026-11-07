@@ -97,23 +97,29 @@ def test_run_then_score():
         text = log.read_text()
         assert "key-" not in text and text.count("[redacted]") == 7
 
-        # Non-answers are out of N and counted on their own: blocked, out of tokens with only
-        # structural fields and sources left, and an empty message with sources.
+        # Non-answers are out of N and counted on their own: blocked, refused, cut off, or out of
+        # tokens with only labels (every STRUCTURAL key) and sources left.
         non_answers = [
             ("gemini", {"candidates": [{"finishReason": "SAFETY"}]}),
-            ("gemini", {"candidates": [{"content": {"role": "model"}, "finishReason": "MAX_TOKENS",
+            ("gemini", {"candidates": [{"content": {"role": "model", "parts": [{"thoughtSignature": "c2ln"}]},
+                                        "finishReason": "MAX_TOKENS",
                                         "groundingMetadata": {"groundingChunks": [{"web": {"title": "himan2411.github.io"}}]}}]}),
             ("perplexity", {"choices": [{"index": 0, "finish_reason": "length", "message": {"role": "assistant", "content": ""}}],
                             "search_results": [{"title": "Himanshu Surana", "url": "https://example.org"}]}),
+            ("chatgpt", {"output": [{"type": "message", "id": "msg_1", "status": "completed", "role": "assistant",
+                                     "content": [{"type": "refusal", "refusal": "I can't help with that."}]}]}),
+            ("chatgpt", {"output": [{"type": "message", "id": "msg_2", "status": "incomplete", "role": "assistant", "content": []}]}),
+            ("google_ai_mode", {"text_blocks": [{"type": "paragraph", "snippet": ""}],
+                                "references": [{"title": "Himanshu Surana", "link": "https://example.org"}]}),
         ]
         with log.open("a") as f:
             for engine, raw in non_answers:
                 f.write(json.dumps({"engine": engine, "prompt_id": "p3", "raw": raw}) + "\n")
         rows = {e: r for (_, e), r in score.score([log]).items()}
-        assert rows["chatgpt"] == [1, 1, ["p2"], 0], rows["chatgpt"]
+        assert rows["chatgpt"] == [1, 1, ["p2"], 2], rows["chatgpt"]
         assert rows["gemini"] == [2, 2, ["p1", "p2"], 2], rows["gemini"]
         assert rows["perplexity"] == [2, 2, ["p1", "p2"], 1], rows["perplexity"]
-        assert rows["google_ai_mode"][:2] == [2, 2]
+        assert rows["google_ai_mode"] == [2, 2, ["p1", "p2"], 1], rows["google_ai_mode"]
 
         # A broken log line names its file and line.
         with log.open("a") as f:
@@ -122,7 +128,7 @@ def test_run_then_score():
             score.score([log])
             raise AssertionError("bad line not reported")
         except SystemExit as e:
-            assert f"{log}:11:" in str(e), e
+            assert f"{log}:14:" in str(e), e
 
 
 if __name__ == "__main__":
