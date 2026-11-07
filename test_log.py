@@ -72,32 +72,48 @@ def test_run_then_score():
 
         def fake_urlopen(req, timeout):
             seen.append(req.full_url)
-            if len(seen) == 1:  # the first call drops the connection; the run must go on
-                raise http.client.RemoteDisconnected("Remote end closed connection without response")
+            if len(seen) == 1:  # the first call is cut off mid-body; the run must go on
+                raise http.client.IncompleteRead(b"")
             engine = next(e for e, host in [("chatgpt", "openai"), ("perplexity", "perplexity"),
                                             ("gemini", "googleapis"), ("google_ai_mode", "serpapi")]
                           if host in req.full_url)
             raw = dict(SYNTHETIC[engine], echo="key-" + engine)  # an echoed key must be redacted
             return io.BytesIO(json.dumps(raw).encode())
 
-        keys = {spec[1]: "key-" + name for name, spec in run.ENGINES.items()}
-        with mock.patch.dict(os.environ, keys), mock.patch.object(run, "ROOT", root), \
-                mock.patch("urllib.request.urlopen", fake_urlopen):
-            assert run.main() == 1  # one failed call
+        def always_fails(req, timeout):
+            raise OSError("network down")
 
-        assert len(seen) == 8
+        # A pasted key with a trailing newline must be stripped, or the echoed key is not redacted.
+        keys = {spec[1]: "key-" + name + "\n" for name, spec in run.ENGINES.items()}
+        with mock.patch.dict(os.environ, keys), mock.patch.object(run, "ROOT", root):
+            with mock.patch("urllib.request.urlopen", always_fails):
+                assert run.main() == 1
+            assert not list((root / "logs").glob("*.jsonl")), "a run with no answers left an empty log"
+            with mock.patch("urllib.request.urlopen", fake_urlopen):
+                assert run.main() == 1  # one failed call
+
+        assert len(seen) == 8, len(seen)
         [log] = (root / "logs").glob("*.jsonl")
         text = log.read_text()
         assert "key-" not in text and text.count("[redacted]") == 7
 
-        # A blocked Gemini answer is a non-answer: out of N, counted on its own.
+        # Non-answers are out of N and counted on their own: blocked, out of tokens with only
+        # structural fields and sources left, and an empty message with sources.
+        non_answers = [
+            ("gemini", {"candidates": [{"finishReason": "SAFETY"}]}),
+            ("gemini", {"candidates": [{"content": {"role": "model"}, "finishReason": "MAX_TOKENS",
+                                        "groundingMetadata": {"groundingChunks": [{"web": {"title": "himan2411.github.io"}}]}}]}),
+            ("perplexity", {"choices": [{"index": 0, "finish_reason": "length", "message": {"role": "assistant", "content": ""}}],
+                            "search_results": [{"title": "Himanshu Surana", "url": "https://example.org"}]}),
+        ]
         with log.open("a") as f:
-            f.write(json.dumps({"engine": "gemini", "prompt_id": "p3",
-                                "raw": {"candidates": [{"finishReason": "SAFETY"}]}}) + "\n")
+            for engine, raw in non_answers:
+                f.write(json.dumps({"engine": engine, "prompt_id": "p3", "raw": raw}) + "\n")
         rows = {e: r for (_, e), r in score.score([log]).items()}
         assert rows["chatgpt"] == [1, 1, ["p2"], 0], rows["chatgpt"]
-        assert rows["gemini"] == [2, 2, ["p1", "p2"], 1], rows["gemini"]
-        assert rows["perplexity"][:2] == rows["google_ai_mode"][:2] == [2, 2]
+        assert rows["gemini"] == [2, 2, ["p1", "p2"], 2], rows["gemini"]
+        assert rows["perplexity"] == [2, 2, ["p1", "p2"], 1], rows["perplexity"]
+        assert rows["google_ai_mode"][:2] == [2, 2]
 
         # A broken log line names its file and line.
         with log.open("a") as f:
@@ -106,7 +122,7 @@ def test_run_then_score():
             score.score([log])
             raise AssertionError("bad line not reported")
         except SystemExit as e:
-            assert f"{log}:9:" in str(e), e
+            assert f"{log}:11:" in str(e), e
 
 
 if __name__ == "__main__":

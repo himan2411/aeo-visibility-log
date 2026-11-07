@@ -7,7 +7,7 @@ Anyone can rerun it. The prompts and the code are here, and every run's raw answ
 ## What is in it
 
 - `prompts.jsonl`: 24 questions a buyer might ask, 14 about AEO and 10 about forward-deployed AI engineering. None of them names me. They are frozen: changing one breaks the comparison over time, so new questions get new ids.
-- `run.py`: asks each engine every prompt and appends the raw JSON responses to `logs/YYYY-MM-DD.jsonl`. Python standard library only, tested with Python 3.15. A failed call is reported and skipped; the run goes on.
+- `run.py`: asks each engine every prompt and appends the raw JSON responses to `logs/YYYY-MM-DD.jsonl`. Python 3.9 or newer, standard library only. A failed call is reported and skipped; the run goes on, and a run where every call fails leaves no log file.
 - `score.py`: reads the logs and prints n/N per date and engine, with a 95% range (Wilson), the prompts that named me, and how many responses had no answer in them.
 - `test_log.py`: offline check of the runner and scorer on synthetic responses.
 
@@ -32,7 +32,7 @@ python3 test_log.py
 
 Engines without a key are skipped. One run is 24 calls per engine. I plan to run it once a week. Running it twice on one day adds a second run to that day's file, and then the range is too narrow, because answers to the same question are not independent.
 
-An answer counts when "Himanshu Surana", "himanshu-surana" or "himan2411" appears in the answer text or in a cited source. Search queries and the echoed request are not counted. Gemini only shows the domain of each source, so its sources count only when the domain matches. A response with no answer in it (cut off, blocked, an error body) is left out of N and shown in its own column.
+An answer counts when "Himanshu Surana", "himanshu-surana" or "himan2411" appears in the answer text or in a cited source. Search queries and the echoed request are not counted. Gemini only shows the domain of each source, so its sources count only when the domain matches. A response with no answer text (cut off, blocked, an error body) is left out of N and shown in its own column, even when it lists sources.
 
 A name can belong to someone else, so I check every match against the raw answer before I report it. Once the site is live I add its domain to `NAMES` in `score.py`, which is a sharper test than the name.
 

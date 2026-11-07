@@ -54,8 +54,10 @@ def ask(url, headers, body):
 
 def main():
     prompts = [json.loads(line) for line in (ROOT / "prompts.jsonl").read_text().splitlines() if line.strip()]
-    engines = [(name, *spec) for name, spec in ENGINES.items() if os.environ.get(spec[1])]
-    missing = [spec[1] for spec in ENGINES.values() if not os.environ.get(spec[1])]
+    # Strip keys: a pasted key often ends in a newline, which breaks the header and shows up in errors.
+    keys = {spec[1]: os.environ.get(spec[1], "").strip() for spec in ENGINES.values()}
+    engines = [(name, *spec) for name, spec in ENGINES.items() if keys[spec[1]]]
+    missing = [var for var, key in keys.items() if not key]
     if missing:
         print("skipping engines without a key: " + ", ".join(missing), file=sys.stderr)
     if not engines:
@@ -68,7 +70,7 @@ def main():
     failed = 0
     with out.open("a") as f:
         for name, build, key_var, model_var, default in engines:
-            key = os.environ[key_var]
+            key = keys[key_var]
             model = os.environ.get(model_var, default) if model_var else default
             for p in prompts:
                 try:
@@ -83,7 +85,9 @@ def main():
                 f.write(json.dumps(rec, ensure_ascii=False).replace(key, "[redacted]") + "\n")
                 f.flush()
                 print(f"{name} {p['id']} ok", file=sys.stderr)
-    print(f"wrote {out.relative_to(ROOT)}, {failed} failed", file=sys.stderr)
+    if out.stat().st_size == 0:  # every call failed: leave no empty log behind
+        out.unlink()
+    print(f"{failed} failed, log: {out.relative_to(ROOT) if out.exists() else 'none'}", file=sys.stderr)
     return 1 if failed else 0
 
 

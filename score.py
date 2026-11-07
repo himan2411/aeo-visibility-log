@@ -5,7 +5,8 @@
 
 An answer counts when a name below appears in the answer text or in a cited source
 (title or URL). The echoed prompt and request metadata are not searched. A response with
-no answer in it (cut off, blocked, an error body) is left out of N and counted on its own.
+no answer text (cut off, blocked, an error body) is left out of N and counted on its own,
+even when it lists sources.
 """
 import collections
 import json
@@ -18,17 +19,22 @@ ROOT = pathlib.Path(__file__).parent
 NAMES = ["himanshu surana", "himanshu-surana", "himan2411"]
 
 
+# Labels and ids, not answer content: an empty answer that still has them is no answer.
+STRUCTURAL = {"type", "role", "id", "status", "index", "finish_reason", "finishReason", "thoughtSignature"}
+
+
 def answer_part(engine, raw):
-    """The part of a raw response that is the answer and its sources."""
+    """The parts of a raw response that are the answer and its sources, as (answer, sources)."""
     if engine == "chatgpt":
-        return [o for o in raw.get("output", []) if o.get("type") == "message"]
+        return [o for o in raw.get("output", []) if o.get("type") == "message"], None
     if engine == "perplexity":
-        return [raw.get("choices"), raw.get("citations"), raw.get("search_results")]
+        return raw.get("choices"), [raw.get("citations"), raw.get("search_results")]
     if engine == "gemini":
-        return [[c.get("content"), c.get("groundingMetadata", {}).get("groundingChunks")]
-                for c in raw.get("candidates", [])]
+        candidates = raw.get("candidates", [])
+        return ([c.get("content") for c in candidates],
+                [c.get("groundingMetadata", {}).get("groundingChunks") for c in candidates])
     if engine == "google_ai_mode":
-        return [raw.get("text_blocks"), raw.get("references")]
+        return raw.get("text_blocks"), raw.get("references")
     raise ValueError(f"unknown engine {engine}")
 
 
@@ -36,21 +42,25 @@ def strings(x):
     if isinstance(x, str):
         yield x
     elif isinstance(x, dict):
-        for v in x.values():
-            yield from strings(v)
-    elif isinstance(x, list):
+        for k, v in x.items():
+            if k not in STRUCTURAL:
+                yield from strings(v)
+    elif isinstance(x, (list, tuple)):
         for v in x:
             yield from strings(v)
 
 
-def answer_text(engine, raw):
-    """Lowercased answer and sources, with every run of whitespace (line breaks, NBSP) as one space."""
-    return " ".join(" ".join(strings(answer_part(engine, raw))).lower().split())
+def flat(x):
+    """Lowercased text, with every run of whitespace (line breaks, NBSP) as one space."""
+    return " ".join(" ".join(strings(x)).lower().split())
+
+
+def named(text):
+    return any(n in text for n in NAMES)
 
 
 def mentions(engine, raw):
-    text = answer_text(engine, raw)
-    return any(n in text for n in NAMES)
+    return named(flat(answer_part(engine, raw)))
 
 
 # Treats answers as independent. Fine for one run per day; if a day pools repeat runs of the
@@ -74,16 +84,17 @@ def score(paths):
             try:
                 rec = json.loads(line)
                 row = rows[(pathlib.Path(path).stem, rec["engine"])]
-                text = answer_text(rec["engine"], rec["raw"])
+                answer, sources = answer_part(rec["engine"], rec["raw"])
+                prompt_id = rec["prompt_id"]
             except Exception as e:
                 raise SystemExit(f"{path}:{lineno}: bad log line: {e!r}")
-            if not text:
+            if not flat(answer):
                 row[3] += 1
                 continue
             row[1] += 1
-            if any(n in text for n in NAMES):
+            if named(flat([answer, sources])):
                 row[0] += 1
-                row[2].append(rec["prompt_id"])
+                row[2].append(prompt_id)
     return rows
 
 
